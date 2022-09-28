@@ -14,9 +14,10 @@ const viewName = (file: string) => {
 };
 
 async function main(store: string, viewRoot) {
+  console.log(`View Update`);
   const maps = await fg(path.join(viewRoot, "**", "map.js"));
   const db = await SSDatabase.create(store, { viewRoot });
-  for (const { view, design } of maps.map(viewName)) {
+  for (const { view, design } of maps.sort().map(viewName)) {
     const v = await db.view(design, view);
     console.log(`Updating ${design}/${view} (latest: ${v.highWaterMark})`);
     await v.update();

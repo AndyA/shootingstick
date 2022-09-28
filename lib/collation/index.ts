@@ -98,16 +98,13 @@ export function sortKey(obj: KeyType) {
         negate(prev, pos);
       } else {
         putWord(CodingMark.PositiveNumber);
-        putDouble(obj);
+        putDouble(Math.abs(obj)); // -0
       }
     } else if (Array.isArray(obj)) {
       putArray(obj, CodingMark.ArrayStart, CodingMark.ArrayEnd);
     } else if (typeof obj === "object") {
-      putArray(
-        Object.entries(obj),
-        CodingMark.ObjectStart,
-        CodingMark.ObjectEnd
-      );
+      const ar = Object.entries(obj);
+      putArray(ar, CodingMark.ObjectStart, CodingMark.ObjectEnd);
     } else if (typeof obj === "string") {
       putString(cache[obj]);
     } else {

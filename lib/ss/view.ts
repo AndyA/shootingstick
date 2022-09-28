@@ -34,7 +34,6 @@ type Action = Update | Delete | Mark;
 
 const isUpdate = (action: Action): action is Update => action.verb === "update";
 const isDelete = (action: Action): action is Delete => action.verb === "delete";
-const isMark = (action: Action): action is Mark => action.verb === "mark";
 
 interface ViewRow {
   oid: number;
@@ -174,7 +173,7 @@ export class SSView {
     }));
   }
 
-  indexDocument(rec: SSRecord) {
+  private indexDocument(rec: SSRecord) {
     this.#focus = rec;
     if (rec.deleted) {
       this.#queue.push({ verb: "delete", oid: rec.oid, id: rec.id });
@@ -185,7 +184,7 @@ export class SSView {
     if (this.#queue.length >= chunkSize) this.flush();
   }
 
-  flush() {
+  private flush() {
     if (this.#queue.length === 0) return;
     this.#update(this.#queue);
     this.#queue = [];
