@@ -1,0 +1,44 @@
+{
+  "name": "shootingstick",
+  "version": "0.0.1",
+  "description": "CouchDB clone",
+  "main": "index.js",
+  "scripts": {
+    "build": "tsc"
+  },
+  "keywords": [
+    "CouchDB"
+  ],
+  "author": "Andy Armstrong <andy@hexten.net>",
+  "license": "Apache-2.0",
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.0",
+    "@types/lodash": "^4.14.185",
+    "@types/nano": "^7.0.0",
+    "@types/node": "^18.7.23",
+    "typescript": "^4.8.3"
+  },
+  "dependencies": {
+    "better-sqlite3": "^7.6.2",
+    "fast-glob": "^3.2.12",
+    "lodash": "^4.17.21",
+    "nano": "^10.0.0",
+    "unicode-collation-algorithm2": "^0.3.1"
+  },
+  "prettier": {
+    "tabWidth": 2,
+    "useTabs": false,
+    "semi": true,
+    "singleQuote": false,
+    "quoteProps": "consistent",
+    "jsxSingleQuote": false,
+    "trailingComma": "none",
+    "bracketSpacing": true,
+    "arrowParens": "avoid",
+    "requirePragma": false,
+    "insertPragma": false,
+    "proseWrap": "preserve",
+    "htmlWhitespaceSensitivity": "css",
+    "endOfLine": "lf"
+  }
+}
