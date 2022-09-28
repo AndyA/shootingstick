@@ -17,8 +17,8 @@ async function main(store: string, viewRoot) {
   const maps = await fg(path.join(viewRoot, "**", "map.js"));
   const db = await SSDatabase.create(store, { viewRoot });
   for (const { view, design } of maps.map(viewName)) {
-    console.log(`Building ${design}/${view}`);
     const v = await db.view(design, view);
+    console.log(`Updating ${design}/${view} (latest: ${v.highWaterMark})`);
     await v.update();
   }
 }

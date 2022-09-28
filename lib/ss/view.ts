@@ -198,7 +198,6 @@ export class SSView {
 
   async update() {
     const hwm = this.highWaterMark;
-    console.log({ hwm });
     let nice = 0;
     for (const rec of this.store.since(hwm)) {
       this.indexDocument(rec);
