@@ -61,6 +61,18 @@ const defaultViewConfig: SSViewConfig = {
   update_seq: false
 };
 
+function resolveViewReference({ id, value }: SSViewRow): string {
+  // Handle CouchDB special case where the value is { _id: "docid" }
+  if (typeof value === "object") {
+    const ve = Object.entries(value);
+    if (ve.length === 1) {
+      const [k, v] = ve[0];
+      if (k === "_id" && typeof v === "string") return v;
+    }
+  }
+  return id;
+}
+
 export class SSView {
   store: SSDatabase;
   #viewDir: string;
@@ -273,18 +285,7 @@ export class SSView {
       }));
 
     if (config.include_docs) {
-      const ids = rows.map(({ id, value }) => {
-        // Handle CouchDB special case where the value is { _id: "docid" }
-        if (typeof value === "object") {
-          const ve = Object.entries(value);
-          if (ve.length === 1) {
-            const [k, v] = ve[0];
-            if (k === "_id" && typeof v === "string") return v;
-          }
-        }
-        return id;
-      });
-
+      const ids = rows.map(resolveViewReference);
       const docs = keyBy(this.store.load(ids), "_id");
 
       // Merge in the documents
