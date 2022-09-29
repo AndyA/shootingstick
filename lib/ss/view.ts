@@ -232,7 +232,7 @@ export class SSView {
   query(opt: SSViewOptions = {}): SSViewResult {
     const config = { ...defaultViewConfig, ...opt };
 
-    const where = [];
+    const where: string[] = [];
     const bind: Record<string, any> = {};
 
     if ("key" in config || "keys" in config) {
