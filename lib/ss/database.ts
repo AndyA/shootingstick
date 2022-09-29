@@ -3,6 +3,7 @@ import path from "node:path";
 import Database from "better-sqlite3";
 import { SSDocument } from "./types";
 import { SSView } from "./view";
+import { initCollation } from "../collation";
 
 const dbName = "store.db";
 const tableName = "store";
@@ -23,6 +24,8 @@ export class SSDatabase {
 
   #db: Database.Database;
   #insert: Database.Transaction;
+  #since: Database.Statement;
+
   #views: Record<string, SSView> = {};
 
   private constructor(dir: string, options) {
@@ -30,7 +33,7 @@ export class SSDatabase {
     this.config = { ...defaultOptions, ...options };
     this.#db = new Database(path.join(dir, dbName));
     this.makeTables();
-    this.makeStatements();
+    this.prepareStatements();
   }
 
   private makeTables() {
@@ -52,7 +55,7 @@ export class SSDatabase {
     sql.flat().map(s => this.#db.prepare(s).run());
   }
 
-  private makeStatements() {
+  private prepareStatements() {
     const insertDoc = this.#db.prepare(
       `INSERT INTO "${tableName}" ("ts", "id", "rev", "deleted", "doc")` +
         `  VALUES (@ts, @id, @rev, @deleted, @doc)`
@@ -70,9 +73,19 @@ export class SSDatabase {
           doc: JSON.stringify(doc)
         });
     });
+
+    this.#since = this.#db.prepare(
+      `SELECT * FROM "${tableName}" ` +
+        ` WHERE "oid" IN (` +
+        `   SELECT MAX("oid") AS "oid" FROM "${tableName}"` +
+        `     WHERE "oid" > @oid` +
+        `     GROUP BY "id"` +
+        `)`
+    );
   }
 
   static async create(dir: string, options: SSOptions = {}) {
+    await initCollation();
     await fs.promises.mkdir(dir, { recursive: true });
     return new SSDatabase(dir, options);
   }
@@ -88,13 +101,6 @@ export class SSDatabase {
   }
 
   since(oid: number = 0) {
-    const sql =
-      `SELECT * FROM "${tableName}" ` +
-      ` WHERE "oid" IN (` +
-      `   SELECT MAX("oid") AS "oid" FROM "${tableName}"` +
-      `     WHERE "oid" > @oid` +
-      `     GROUP BY "id"` +
-      `)`;
-    return this.#db.prepare(sql).iterate({ oid });
+    return this.#since.iterate({ oid });
   }
 }
