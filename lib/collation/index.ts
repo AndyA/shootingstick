@@ -1,8 +1,6 @@
 import { Buffer } from "node:buffer";
 import * as uca from "unicode-collation-algorithm2";
-
-type Scalar = null | false | true | number | string;
-export type KeyType = Scalar | KeyType[] | { [key: string]: KeyType };
+import type { SSKeyType } from "../ss/types";
 
 enum CodingMark {
   ArrayEnd = 0x0001,
@@ -32,10 +30,10 @@ const flags = uca.PRIMARY | uca.SECONDARY | uca.TERTIARY | uca.QUATERNARY;
 const ucaKey = (s: string) => uca.sortKey(s, flags);
 
 // Currently quite expensive...
-export function sortKey(obj: KeyType) {
+export function sortKey(obj: SSKeyType) {
   const cache: Record<string, Buffer> = {};
 
-  const getSize = (obj: KeyType) => {
+  const getSize = (obj: SSKeyType) => {
     if (obj === true || obj === false || obj === null) return 2;
     if (typeof obj === "number") return 10;
     // The encoded size of an array is the size of its elements
@@ -71,7 +69,7 @@ export function sortKey(obj: KeyType) {
     }
   };
 
-  const putArray = (ar: KeyType[], start: CodingMark, end: CodingMark) => {
+  const putArray = (ar: SSKeyType[], start: CodingMark, end: CodingMark) => {
     putWord(start);
     for (const obj of ar) encodeKey(obj);
     putWord(end);
@@ -86,7 +84,7 @@ export function sortKey(obj: KeyType) {
     }
   };
 
-  const encodeKey = (obj: KeyType) => {
+  const encodeKey = (obj: SSKeyType) => {
     if (obj === null) putWord(CodingMark.Null);
     else if (obj === false) putWord(CodingMark.False);
     else if (obj === true) putWord(CodingMark.True);

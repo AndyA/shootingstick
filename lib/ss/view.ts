@@ -2,15 +2,22 @@ import fs from "node:fs";
 import vm from "node:vm";
 import path from "node:path";
 
-import { uniq, last } from "lodash";
+import { uniq, last, keyBy } from "lodash";
 import Database from "better-sqlite3";
+import { Sqlite } from "./sqlite";
 
 import { SSDatabase } from "./database";
+import { bindNames, bindObject, bindVars, sum, toJSON } from "./util";
 import { sortKey } from "../collation";
 
-import type { SSDocument, SSRecord, SSFocus } from "./types";
-import type { KeyType } from "../collation";
-import { sum, toJSON } from "./util";
+import type {
+  SSDocument,
+  SSRecord,
+  SSFocus,
+  SSKeyType,
+  SSViewConfig,
+  SSViewOptions
+} from "./types";
 
 const queueMax = 1000;
 
@@ -18,7 +25,7 @@ interface Update {
   verb: "update";
   oid: number;
   id: string;
-  key: KeyType;
+  key: SSKeyType;
   value: any;
 }
 
@@ -38,11 +45,25 @@ type Action = Update | Delete | Mark;
 const isUpdate = (action: Action): action is Update => action.verb === "update";
 const isDelete = (action: Action): action is Delete => action.verb === "delete";
 
+const defaultViewConfig: SSViewConfig = {
+  conflicts: false,
+  descending: false,
+  group: false,
+  include_docs: false,
+  attachments: false,
+  inclusive_end: true,
+  skip: 0,
+  sorted: true,
+  stable: false,
+  update: true,
+  update_seq: false
+};
+
 export class SSView {
   store: SSDatabase;
   #viewDir: string;
   #dbDir: string;
-  #db: Database.Database;
+  #db: Sqlite;
 
   #mapFn: (doc: SSDocument) => any;
 
@@ -98,7 +119,7 @@ export class SSView {
   }
 
   private makeDatabase() {
-    const db = (this.#db = new Database(path.join(this.#dbDir, "view.db")));
+    const db = (this.#db = new Sqlite(path.join(this.#dbDir, "view.db")));
     // Create the table
     const create =
       `CREATE TABLE IF NOT EXISTS "view" (` +
@@ -163,6 +184,7 @@ export class SSView {
     }));
   }
 
+  // Index a document.
   private async indexDocument(rec: SSRecord) {
     if (rec.deleted) {
       this.#queue.push({ verb: "delete", oid: rec.oid, id: rec.id });
@@ -176,9 +198,10 @@ export class SSView {
   }
 
   private flush() {
-    if (this.#queue.length === 0) return;
-    this.#update(this.#queue);
-    this.#queue = [];
+    if (this.#queue.length) {
+      this.#update(this.#queue);
+      this.#queue = [];
+    }
   }
 
   get highWaterMark() {
@@ -190,5 +213,73 @@ export class SSView {
     const hwm = this.highWaterMark;
     for (const rec of this.store.since(hwm)) await this.indexDocument(rec);
     this.flush();
+  }
+
+  query(opt: SSViewOptions = {}) {
+    const config = { ...defaultViewConfig, ...opt };
+
+    const where = [];
+    const bind: Record<string, any> = {};
+
+    if ("key" in config || "keys" in config) {
+      if ("key" in config && "keys" in config)
+        throw new Error(`Can't have both "key" and "keys"`);
+      const keys = (config.key ? [config.key] : config.keys).map(sortKey);
+      const names = bindNames("k")(keys);
+      where.push(`"binkey" IN (${bindVars(names)})`);
+      Object.assign(bind, bindObject(names)(keys));
+    }
+
+    if ("startkey" in config) {
+      const sk = sortKey(config.startkey);
+      where.push(`"binkey" >= @sk`);
+      bind.sk = sk;
+    }
+
+    if ("endkey" in config) {
+      const ek = sortKey(config.endkey);
+      const op = config.inclusive_end ? "<=" : "<";
+      where.push(`"binkey" ${op} @ek`);
+      bind.ek = ek;
+    }
+
+    const sql = [`SELECT "oid", "id", "key", "value" FROM "view"`];
+    if (where.length) sql.push(`WHERE ${where.join(" AND ")}`);
+
+    if (config.sorted) {
+      const dir = config.descending ? "DESC" : "ASC";
+      sql.push(`ORDER BY "binkey" ${dir}`);
+    }
+
+    if ("limit" in config) {
+      sql.push(`LIMIT @limit`);
+      bind.limit = config.limit;
+    }
+
+    if (config.skip) {
+      sql.push(`OFFSET @skip`);
+      bind.skip = config.skip;
+    }
+
+    const indexRows = this.#db.learn(sql.join(" ")).all(bind);
+
+    if (config.include_docs) {
+      const oids = uniq(indexRows.map(r => r.oid));
+      const docs = keyBy(this.store.loadByOID(oids), "oid");
+
+      // Merge in the documents
+      for (const row of indexRows) {
+        const { doc } = docs[row.oid];
+        row.doc = doc;
+      }
+    }
+
+    const rows = indexRows.map(({ oid, key, value, ...rest }) => ({
+      ...rest,
+      key: JSON.parse(key),
+      value: JSON.parse(value)
+    }));
+
+    return { rows };
   }
 }

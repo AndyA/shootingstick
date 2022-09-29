@@ -1,14 +1,17 @@
 import fs from "node:fs";
 import path from "node:path";
+
 import Database from "better-sqlite3";
-import { SSDocument } from "./types";
+
+import { Sqlite } from "./sqlite";
+import { SSDocument, SSViewOptions } from "./types";
 import { SSView } from "./view";
 import { initCollation } from "../collation";
+import { bindNames, bindObject, bindVars } from "./util";
 
 const dbName = "store.db";
-const tableName = "store";
 
-export interface SSConfig {
+interface SSConfig {
   viewRoot: string;
 }
 
@@ -22,23 +25,23 @@ export class SSDatabase {
   dir: string;
   config: SSConfig;
 
-  #db: Database.Database;
+  #db: Sqlite;
   #insert: Database.Transaction;
   #since: Database.Statement;
 
   #views: Record<string, SSView> = {};
 
-  private constructor(dir: string, options) {
+  private constructor(dir: string, options: SSOptions) {
     this.dir = dir;
     this.config = { ...defaultOptions, ...options };
-    this.#db = new Database(path.join(dir, dbName));
+    this.#db = new Sqlite(path.join(dir, dbName));
     this.makeTables();
     this.prepareStatements();
   }
 
   private makeTables() {
     const sql = [
-      `CREATE TABLE IF NOT EXISTS "${tableName}" (` +
+      `CREATE TABLE IF NOT EXISTS "store" (` +
         `  oid INTEGER PRIMARY KEY AUTOINCREMENT,` +
         `  ts INTEGER NOT NULL,` +
         `  id TEXT NOT NULL,` +
@@ -48,8 +51,7 @@ export class SSDatabase {
         `)`,
       ["ts", "id", "rev"].map(
         col =>
-          `CREATE INDEX IF NOT EXISTS` +
-          `  "${tableName}-${col}" ON "${tableName}"("${col}")`
+          `CREATE INDEX IF NOT EXISTS` + `  "store-${col}" ON "store"("${col}")`
       )
     ];
     sql.flat().map(s => this.#db.prepare(s).run());
@@ -57,7 +59,7 @@ export class SSDatabase {
 
   private prepareStatements() {
     const insertDoc = this.#db.prepare(
-      `INSERT INTO "${tableName}" ("ts", "id", "rev", "deleted", "doc")` +
+      `INSERT INTO "store" ("ts", "id", "rev", "deleted", "doc")` +
         `  VALUES (@ts, @id, @rev, @deleted, @doc)`
     );
 
@@ -75,9 +77,9 @@ export class SSDatabase {
     });
 
     this.#since = this.#db.prepare(
-      `SELECT * FROM "${tableName}" ` +
+      `SELECT * FROM "store" ` +
         ` WHERE "oid" IN (` +
-        `   SELECT MAX("oid") AS "oid" FROM "${tableName}"` +
+        `   SELECT MAX("oid") AS "oid" FROM "store"` +
         `     WHERE "oid" > @oid` +
         `     GROUP BY "id"` +
         `)`
@@ -94,13 +96,29 @@ export class SSDatabase {
     this.#insert(docs);
   }
 
-  async view(design: string, view: string) {
+  async getView(design: string, view: string) {
     const viewKey = [design, view].join("/");
     return (this.#views[viewKey] =
       this.#views[viewKey] || (await SSView.create(this, design, view)));
   }
 
+  async view(design: string, view: string, opt: SSViewOptions = {}) {
+    const v = await this.getView(design, view);
+    return v.query(opt);
+  }
+
   since(oid: number = 0) {
     return this.#since.iterate({ oid });
+  }
+
+  loadByOID(oids: number[]) {
+    const names = bindNames("o")(oids);
+    const bind = bindObject(names)(oids);
+    return this.#db
+      .learn(
+        `SELECT "oid", "doc" FROM "store" WHERE "oid" IN (${bindVars(names)})`
+      )
+      .all(bind)
+      .map(({ oid, doc }) => ({ oid, doc: JSON.parse(doc) }));
   }
 }
