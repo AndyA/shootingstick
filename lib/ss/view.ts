@@ -10,7 +10,7 @@ import { sortKey } from "../collation";
 
 import type { SSDocument, SSRecord, SSFocus } from "./types";
 import type { KeyType } from "../collation";
-import { toJSON } from "./util";
+import { sum, toJSON } from "./util";
 
 const queueMax = 1000;
 
@@ -44,7 +44,7 @@ export class SSView {
   #dbDir: string;
   #db: Database.Database;
 
-  #mapFn: (doc: SSDocument) => void;
+  #mapFn: (doc: SSDocument) => any;
 
   // Context for #mapFn
   #focus: SSFocus = null;
@@ -82,22 +82,19 @@ export class SSView {
   private async makeMapFn() {
     const mapper = path.join(this.#viewDir, "map.js");
     const code = await fs.promises.readFile(mapper, "utf8");
-    const context = {
-      emit: (key: any, value: any) => {
-        const { oid, id } = this.#focus;
-        this.#queue.push({ verb: "update", oid, id, key, value });
-      },
-      toJSON,
-      JSON,
-      isArray: Array.isArray,
-      log: console.log,
-      sum: (list: number[]) => list.reduce((a, b) => a + b, 0),
-      exports: null
-    };
-    vm.createContext(context);
-    vm.runInContext(code, context);
 
-    this.#mapFn = context.exports as (doc: SSDocument) => void;
+    const log = console.log;
+    const isArray = Array.isArray;
+
+    const emit = (key: any, value: any): void => {
+      const { oid, id } = this.#focus;
+      this.#queue.push({ verb: "update", oid, id, key, value });
+    };
+
+    const context = { emit, toJSON, JSON, isArray, log, sum, exports: null };
+
+    vm.createContext(context);
+    this.#mapFn = vm.runInContext(code, context);
   }
 
   private makeDatabase() {
@@ -166,12 +163,12 @@ export class SSView {
     }));
   }
 
-  private indexDocument(rec: SSRecord) {
+  private async indexDocument(rec: SSRecord) {
     if (rec.deleted) {
       this.#queue.push({ verb: "delete", oid: rec.oid, id: rec.id });
     } else {
       this.#focus = rec;
-      this.#mapFn(JSON.parse(rec.doc));
+      await Promise.resolve(this.#mapFn(JSON.parse(rec.doc)));
       this.#focus = null;
       this.#queue.push({ verb: "mark", oid: rec.oid });
     }
@@ -186,14 +183,14 @@ export class SSView {
 
   get highWaterMark() {
     const rec = this.#getState.get({ id: "oid" });
-    return rec ? rec.value : 0;
+    return rec?.value ?? 0;
   }
 
   async update() {
     const hwm = this.highWaterMark;
     let nice = 0;
     for (const rec of this.store.since(hwm)) {
-      this.indexDocument(rec);
+      await this.indexDocument(rec);
       if (++nice > 100) await Promise.resolve((nice = 0));
     }
     this.flush();
