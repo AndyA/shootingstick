@@ -188,11 +188,7 @@ export class SSView {
 
   async update() {
     const hwm = this.highWaterMark;
-    let nice = 0;
-    for (const rec of this.store.since(hwm)) {
-      await this.indexDocument(rec);
-      if (++nice > 100) await Promise.resolve((nice = 0));
-    }
+    for (const rec of this.store.since(hwm)) await this.indexDocument(rec);
     this.flush();
   }
 }
