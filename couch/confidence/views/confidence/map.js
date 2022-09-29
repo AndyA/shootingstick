@@ -1,9 +1,23 @@
 exports = function (doc) {
   if (doc.kind !== "script") return;
 
-  doc.pages.map(function (page, pageNum) {
-    if (page.paras)
-      page.paras.map(function (para, paraNum) {
+  if (doc.pages) {
+    doc.pages.map(function (page, pageNum) {
+      var count = 0;
+      var total = 0;
+      if (page.sections) {
+        page.sections.map(function (section) {
+          if (section.zones) {
+            section.zones.map(function (zone) {
+              if (zone.confidence) {
+                count += zone.confidence.count;
+                total += zone.confidence.avg * zone.confidence.count;
+              }
+            });
+          }
+        });
+      }
+      if (count)
         emit(
           [
             doc.year || 0,
@@ -11,11 +25,10 @@ exports = function (doc) {
             doc.day || 0,
             doc.hour || 0,
             doc.min || 0,
-            pageNum,
-            paraNum
+            pageNum
           ],
-          para.confidence
+          total / count
         );
-      });
-  });
+    });
+  }
 };
