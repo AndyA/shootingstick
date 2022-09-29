@@ -1,5 +1,5 @@
 import { sortKey, initCollation } from "../lib/collation";
-import type { SSKeyType } from "../lib/ss/types";
+import type { SSObject } from "../lib/ss/types";
 
 function sortWithKey<T>(values: T[], sortKey: (value: T) => Buffer) {
   const data = values.map(value => ({ value, key: sortKey(value) }));
@@ -7,7 +7,7 @@ function sortWithKey<T>(values: T[], sortKey: (value: T) => Buffer) {
   return data.map(({ value }) => value);
 }
 
-function withSortKey(values: SSKeyType[]) {
+function withSortKey(values: SSObject[]) {
   const res = sortWithKey(values, sortKey);
   for (const row of res) console.log(JSON.stringify(row));
 }

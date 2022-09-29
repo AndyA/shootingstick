@@ -8,6 +8,7 @@ import { SSDocument, SSViewOptions } from "./types";
 import { SSView } from "./view";
 import { initCollation } from "../collation";
 import { bindNames, bindObject, bindVars } from "./util";
+import { uniq } from "lodash";
 
 const dbName = "store.db";
 
@@ -111,14 +112,19 @@ export class SSDatabase {
     return this.#since.iterate({ oid });
   }
 
-  loadByOID(oids: number[]) {
-    const names = bindNames("o")(oids);
-    const bind = bindObject(names)(oids);
+  load(ids: string[]) {
+    const uids = uniq(ids);
+    const names = bindNames("i")(uids);
     return this.#db
       .learn(
-        `SELECT "oid", "doc" FROM "store" WHERE "oid" IN (${bindVars(names)})`
+        `SELECT "doc" FROM "store" ` +
+          ` WHERE "oid" IN (` +
+          `   SELECT MAX("oid") AS "oid" FROM "store"` +
+          `     WHERE "id" IN (${bindVars(names)})` +
+          `     GROUP BY "id"` +
+          `)`
       )
-      .all(bind)
-      .map(({ oid, doc }) => ({ oid, doc: JSON.parse(doc) }));
+      .all(bindObject(names)(uids))
+      .map(({ doc }) => JSON.parse(doc));
   }
 }

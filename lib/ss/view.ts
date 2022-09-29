@@ -14,9 +14,11 @@ import type {
   SSDocument,
   SSRecord,
   SSFocus,
-  SSKeyType,
+  SSObject,
   SSViewConfig,
-  SSViewOptions
+  SSViewOptions,
+  SSViewRow,
+  SSViewResult
 } from "./types";
 
 const queueMax = 1000;
@@ -25,7 +27,7 @@ interface Update {
   verb: "update";
   oid: number;
   id: string;
-  key: SSKeyType;
+  key: SSObject;
   value: any;
 }
 
@@ -215,7 +217,7 @@ export class SSView {
     this.flush();
   }
 
-  query(opt: SSViewOptions = {}) {
+  query(opt: SSViewOptions = {}): SSViewResult {
     const config = { ...defaultViewConfig, ...opt };
 
     const where = [];
@@ -243,12 +245,12 @@ export class SSView {
       bind.ek = ek;
     }
 
-    const sql = [`SELECT "oid", "id", "key", "value" FROM "view"`];
+    const sql = [`SELECT "id", "key", "value" FROM "view"`];
     if (where.length) sql.push(`WHERE ${where.join(" AND ")}`);
 
     if (config.sorted) {
       const dir = config.descending ? "DESC" : "ASC";
-      sql.push(`ORDER BY "binkey" ${dir}`);
+      sql.push(`ORDER BY "binkey" ${dir}, "id" ${dir}`);
     }
 
     if ("limit" in config) {
@@ -261,24 +263,37 @@ export class SSView {
       bind.skip = config.skip;
     }
 
-    const indexRows = this.#db.learn(sql.join(" ")).all(bind);
+    const rows: SSViewRow[] = this.#db
+      .learn(sql.join(" "))
+      .all(bind)
+      .map(({ id, key, value }) => ({
+        id,
+        key: JSON.parse(key),
+        value: JSON.parse(value)
+      }));
 
     if (config.include_docs) {
-      const oids = uniq(indexRows.map(r => r.oid));
-      const docs = keyBy(this.store.loadByOID(oids), "oid");
+      const ids = rows.map(({ id, value }) => {
+        // Handle CouchDB special case where the value is { _id: "docid" }
+        if (typeof value === "object") {
+          const ve = Object.entries(value);
+          if (ve.length === 1) {
+            const [k, v] = ve[0];
+            if (k === "_id" && typeof v === "string") return v;
+          }
+        }
+        return id;
+      });
+
+      const docs = keyBy(this.store.load(ids), "_id");
 
       // Merge in the documents
-      for (const row of indexRows) {
-        const { doc } = docs[row.oid];
+      for (const row of rows) {
+        const doc = docs[row.id];
+        if (!doc) throw new Error(`No doc found for ${row.id}`);
         row.doc = doc;
       }
     }
-
-    const rows = indexRows.map(({ oid, key, value, ...rest }) => ({
-      ...rest,
-      key: JSON.parse(key),
-      value: JSON.parse(value)
-    }));
 
     return { rows };
   }
