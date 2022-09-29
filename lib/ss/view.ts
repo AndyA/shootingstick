@@ -2,14 +2,17 @@ import fs from "node:fs";
 import vm from "node:vm";
 import path from "node:path";
 
-import { uniq } from "lodash";
+import { uniq, last } from "lodash";
 import Database from "better-sqlite3";
 
 import { SSDatabase } from "./database";
-import { SSDocument, SSRecord, SSFocus } from "./types";
-import { sortKey, KeyType, initCollation } from "../collation";
+import { sortKey } from "../collation";
 
-const chunkSize = 100;
+import type { SSDocument, SSRecord, SSFocus } from "./types";
+import type { KeyType } from "../collation";
+import { toJSON } from "./util";
+
+const queueMax = 1000;
 
 interface Update {
   verb: "update";
@@ -35,13 +38,6 @@ type Action = Update | Delete | Mark;
 const isUpdate = (action: Action): action is Update => action.verb === "update";
 const isDelete = (action: Action): action is Delete => action.verb === "delete";
 
-interface ViewRow {
-  oid: number;
-  id: string;
-  key: KeyType;
-  value: any;
-}
-
 export class SSView {
   store: SSDatabase;
   #viewDir: string;
@@ -56,9 +52,9 @@ export class SSView {
   // Insert queue
   #queue: Action[] = [];
 
-  #update: Database.Transaction = null;
-  #getState: Database.Statement = null;
-  #setState: Database.Statement = null;
+  #update: Database.Transaction;
+  #getState: Database.Statement;
+  #setState: Database.Statement;
 
   private constructor(store: SSDatabase, viewDir: string, dbDir: string) {
     this.store = store;
@@ -73,8 +69,6 @@ export class SSView {
     design: string,
     view: string
   ): Promise<SSView> {
-    await initCollation();
-
     const viewDir = path.join(db.config.viewRoot, design, "views", view);
     const dbDir = path.join(db.dir, "views", design, view);
     await fs.promises.mkdir(dbDir, { recursive: true });
@@ -93,7 +87,11 @@ export class SSView {
         const { oid, id } = this.#focus;
         this.#queue.push({ verb: "update", oid, id, key, value });
       },
-      toJSON: JSON.stringify,
+      toJSON,
+      JSON,
+      isArray: Array.isArray,
+      log: console.log,
+      sum: (list: number[]) => list.reduce((a, b) => a + b, 0),
       exports: null
     };
     vm.createContext(context);
@@ -157,31 +155,27 @@ export class SSView {
       for (const id of ids) del.run({ id });
 
       for (const row of updates) {
-        ins.run({
-          binkey: sortKey(row.key),
-          oid: row.oid,
-          id: row.id,
-          key: JSON.stringify(row.key ?? null),
-          value: JSON.stringify(row.value ?? null)
-        });
+        const { oid, id, key, value } = row;
+        const binkey = sortKey(row.key);
+        ins.run({ binkey, oid, id, key: toJSON(key), value: toJSON(value) });
       }
 
-      // Highest oid we've seen?
-      const oid = Math.max(...rows.map(r => r.oid));
-
-      this.#setState.run({ id: "oid", value: oid });
+      // Highest oid we've seen? They're in order
+      // so it's the last one.
+      this.#setState.run({ id: "oid", value: last(rows).oid });
     }));
   }
 
   private indexDocument(rec: SSRecord) {
-    this.#focus = rec;
     if (rec.deleted) {
       this.#queue.push({ verb: "delete", oid: rec.oid, id: rec.id });
     } else {
+      this.#focus = rec;
       this.#mapFn(JSON.parse(rec.doc));
+      this.#focus = null;
       this.#queue.push({ verb: "mark", oid: rec.oid });
     }
-    if (this.#queue.length >= chunkSize) this.flush();
+    if (this.#queue.length >= queueMax) this.flush();
   }
 
   private flush() {
