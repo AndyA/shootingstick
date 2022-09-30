@@ -4,22 +4,43 @@ import path from "node:path";
 import Database from "better-sqlite3";
 
 import { Sqlite } from "./sqlite";
-import { SSDocument, SSViewOptions } from "./types";
+import {
+  isSSBulkRowOK,
+  SSBulkRow,
+  SSBulkRowError,
+  SSBulkRowOK,
+  SSBulkResult,
+  SSDocument,
+  SSFreeDocument,
+  SSViewOptions,
+  isSSBulkRowError
+} from "./types";
 import { SSView } from "./view";
 import { initCollation } from "../collation";
-import { bindNames, bindObject, bindVars } from "./util";
-import { uniq } from "lodash";
+import { bindNames, bindObject, bindVars, nextRev } from "./util";
+import { groupBy, keyBy, uniq } from "lodash";
 
 const dbName = "store.db";
 
-interface SSConfig {
+export interface SSConfig {
   viewRoot: string;
 }
 
-type SSOptions = Partial<SSConfig>;
+export type SSOptions = Partial<SSConfig>;
+
+interface WorkSlot {
+  result: SSBulkRow;
+  doc: SSFreeDocument;
+}
 
 const defaultOptions: SSConfig = {
   viewRoot: "."
+};
+
+const noid: SSBulkRowError = {
+  id: "",
+  error: "noid",
+  reason: "Documents must have an _id string"
 };
 
 export class SSDatabase {
@@ -28,6 +49,7 @@ export class SSDatabase {
 
   #db: Sqlite;
   #insert: Database.Transaction;
+  #bulkUpdate: Database.Transaction;
   #since: Database.Statement;
 
   #views: Record<string, SSView> = {};
@@ -85,6 +107,73 @@ export class SSDatabase {
         `     GROUP BY "id"` +
         `)`
     );
+
+    this.#bulkUpdate = this.#db.transaction((docs: SSFreeDocument[]) => {
+      // const ids = work.filter(isSSBulkRowOK);
+      // const revs = probe.all(bind());
+      const work: WorkSlot[] = docs.map(doc =>
+        typeof doc._id === "string"
+          ? { doc, result: { id: doc._id, ok: true, rev: "" } }
+          : { doc, result: noid }
+      );
+
+      const todo = work.filter(({ result }) => isSSBulkRowOK(result));
+      const ids = todo.map(({ result }) => result.id);
+
+      const names = bindNames("id")(todo);
+
+      // Find any current versions
+      const revs = keyBy(
+        this.#db
+          .learn(
+            `SELECT "id", "rev" FROM "store" ` +
+              ` WHERE "oid" IN (` +
+              `   SELECT MAX("oid") AS "oid" FROM "store"` +
+              `     WHERE "id" IN (${bindVars(names)})` +
+              `     GROUP BY "id"` +
+              `)`
+          )
+          .all(bindObject(names)(ids)),
+        "id"
+      );
+
+      // Check for conflicts
+      for (const slot of todo) {
+        const { doc } = slot;
+        const rev = revs[doc._id]?.rev;
+        if (doc._rev !== rev) {
+          slot.result = {
+            id: doc._id,
+            error: "conflict",
+            reason: "Document update conflict"
+          };
+        }
+      }
+
+      // Allocate revisions to docs
+      for (const slot of todo) {
+        if (isSSBulkRowError(slot.result)) continue;
+        const _rev = nextRev(slot.doc);
+        slot.doc = { ...slot.doc, _rev };
+        slot.result.rev = _rev;
+      }
+
+      const ts = new Date().getTime();
+
+      // Commit the documents
+      for (const { doc, result } of todo) {
+        if (isSSBulkRowError(result)) continue;
+        insertDoc.run({
+          ts,
+          id: doc._id,
+          rev: doc._rev,
+          deleted: doc._deleted ? 1 : 0,
+          doc: JSON.stringify(doc)
+        });
+      }
+
+      return work.map(({ result }) => result);
+    });
   }
 
   static async create(dir: string, options: SSOptions = {}) {
@@ -95,6 +184,10 @@ export class SSDatabase {
 
   insert(docs: SSDocument[]) {
     this.#insert(docs);
+  }
+
+  bulk(docs: SSFreeDocument[]) {
+    return this.#bulkUpdate(docs);
   }
 
   async getView(design: string, view: string) {

@@ -23,10 +23,7 @@ async function update(db: SSDatabase, viewRoot: string) {
   }
 }
 
-async function main(store: string, viewRoot: string) {
-  const db = await SSDatabase.create(store, { viewRoot });
-  // await update(db, viewRoot);
-
+async function query(db: SSDatabase) {
   const res = await db.view("confidence", "confidence", {
     startkey: [1937, 12, 7, 0],
     endkey: [1937, 12, 7, 7, {}],
@@ -35,6 +32,26 @@ async function main(store: string, viewRoot: string) {
   });
 
   console.log(JSON.stringify(res, null, 2));
+}
+
+async function writeDoc(db: SSDatabase) {
+  const [prev] = db.load(["test1"]);
+  const doc = {
+    _id: "test1",
+    _rev: prev._rev,
+    _deleted: true
+    // kind: "test",
+    // when: new Date().toISOString()
+  };
+  const res = db.bulk([doc]);
+  console.log(res);
+}
+
+async function main(store: string, viewRoot: string) {
+  const db = await SSDatabase.create(store, { viewRoot });
+  await update(db, viewRoot);
+  // await query(db);
+  // await writeDoc(db);
 }
 
 main(store, viewRoot).catch(e => {

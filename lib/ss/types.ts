@@ -11,6 +11,9 @@ export interface SSDocument extends SSFreeDocument {
   _rev: string;
 }
 
+export const isSSDocument = (doc: SSFreeDocument): doc is SSDocument =>
+  "_rev" in doc;
+
 export interface SSFocus {
   oid: number;
   id: string;
@@ -59,3 +62,25 @@ export interface SSViewRow {
 export interface SSViewResult {
   rows: SSViewRow[];
 }
+
+export interface SSBulkRowOK {
+  id: string;
+  ok: true;
+  rev: string;
+}
+
+export interface SSBulkRowError {
+  id: string;
+  error: string;
+  reason: string;
+}
+
+export type SSBulkRow = SSBulkRowOK | SSBulkRowError;
+
+export const isSSBulkRowOK = (row: SSBulkRow): row is SSBulkRowOK =>
+  "ok" in row;
+
+export const isSSBulkRowError = (row: SSBulkRow): row is SSBulkRowError =>
+  "error" in row;
+
+export type SSBulkResult = SSBulkRow[];
