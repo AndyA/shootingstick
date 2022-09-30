@@ -8,15 +8,12 @@ const port = config.get("port");
 const app = express();
 const ctx = SSContext.instance;
 
-app.get("/", (req: Request, res: Response) =>
-  res.json({ couchdb: "Welcome", version, features: [] })
-);
-
 const writeLine = (res: Response, line: string) =>
   new Promise(resolve => res.write(`${line}\r\n`, "utf8", resolve));
 
 async function streamRows(res: Response, iter: Generator, total: number) {
   const head = JSON.stringify({ total, rows: [] });
+  res.on("close", () => iter.return(undefined));
   await writeLine(res, head.slice(0, -2));
   let prev = null;
   for (const row of iter) {
@@ -34,9 +31,13 @@ app.get(
     const { database, ddoc, view } = req.params;
     const store = await ctx.database(database);
     const v = await store.view(ddoc, view);
-    const iter = v.query({ limit: 10 });
+    const iter = v.query();
     await streamRows(res, iter, v.total);
   }
+);
+
+app.get("/", (req: Request, res: Response) =>
+  res.json({ couchdb: "Welcome", version, features: [] })
 );
 
 app.listen(port, () => console.log(`Listening on ${port}`));

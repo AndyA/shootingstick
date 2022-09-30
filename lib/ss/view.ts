@@ -276,6 +276,8 @@ export class SSView {
     yield* flushQueue();
   }
 
+  // TODO each prepared statement can only run a single query at a time
+  // so we need to have a pool of statements.
   *query(opt: SSViewOptions = {}): Generator<SSViewRow, void, void> {
     const config = { ...defaultViewConfig, ...opt };
 
@@ -322,7 +324,7 @@ export class SSView {
       bind.skip = config.skip;
     }
 
-    const iter = this.#db.learn(sql.join(" ")).iterate(bind);
+    const iter = this.#db.prepare(sql.join(" ")).iterate(bind);
     yield* this.streamTail(config, iter);
   }
 }
