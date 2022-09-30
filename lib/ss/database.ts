@@ -8,8 +8,6 @@ import {
   isSSBulkRowOK,
   SSBulkRow,
   SSBulkRowError,
-  SSBulkRowOK,
-  SSBulkResult,
   SSDocument,
   SSFreeDocument,
   SSViewOptions,
@@ -17,8 +15,8 @@ import {
 } from "./types";
 import { SSView } from "./view";
 import { initCollation } from "../collation";
-import { bindNames, bindObject, bindVars, nextRev } from "./util";
-import { groupBy, keyBy, uniq } from "lodash";
+import { bindNames, bindObject, bindVars, nextRev, toJSON } from "./util";
+import { keyBy, uniq } from "lodash";
 
 const dbName = "store.db";
 
@@ -150,25 +148,20 @@ export class SSDatabase {
         }
       }
 
-      // Allocate revisions to docs
+      const ts = new Date().getTime();
+
+      // Allocate revisions to docs and insert them.
       for (const slot of todo) {
         if (isSSBulkRowError(slot.result)) continue;
         const _rev = nextRev(slot.doc);
-        slot.doc = { ...slot.doc, _rev };
         slot.result.rev = _rev;
-      }
-
-      const ts = new Date().getTime();
-
-      // Commit the documents
-      for (const { doc, result } of todo) {
-        if (isSSBulkRowError(result)) continue;
+        const doc = { ...slot.doc, _rev };
         insertDoc.run({
           ts,
           id: doc._id,
-          rev: doc._rev,
-          deleted: doc._deleted ? 1 : 0,
-          doc: JSON.stringify(doc)
+          rev: _rev,
+          deleted: Number(!!doc._deleted),
+          doc: toJSON(doc)
         });
       }
 

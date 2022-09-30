@@ -59,9 +59,9 @@ export interface SSViewRow {
   doc?: SSObject;
 }
 
-export interface SSViewResult {
-  rows: SSViewRow[];
-}
+// export interface SSViewResult {
+//   rows: SSViewRow[];
+// }
 
 export interface SSBulkRowOK {
   id: string;

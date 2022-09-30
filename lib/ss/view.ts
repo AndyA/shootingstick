@@ -17,8 +17,7 @@ import type {
   SSObject,
   SSViewConfig,
   SSViewOptions,
-  SSViewRow,
-  SSViewResult
+  SSViewRow
 } from "./types";
 
 const queueMax = 1000;
@@ -229,7 +228,7 @@ export class SSView {
     this.flush();
   }
 
-  query(opt: SSViewOptions = {}): SSViewResult {
+  query(opt: SSViewOptions = {}): SSViewRow[] {
     const config = { ...defaultViewConfig, ...opt };
 
     const where: string[] = [];
@@ -296,6 +295,6 @@ export class SSView {
       }
     }
 
-    return { rows };
+    return rows;
   }
 }
