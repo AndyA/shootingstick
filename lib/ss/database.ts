@@ -183,22 +183,17 @@ export class SSDatabase {
     return this.#bulkUpdate(docs);
   }
 
-  async getView(design: string, view: string) {
+  async view(design: string, view: string) {
     const viewKey = [design, view].join("/");
     return (this.#views[viewKey] =
       this.#views[viewKey] || (await SSView.create(this, design, view)));
-  }
-
-  async view(design: string, view: string, opt: SSViewOptions = {}) {
-    const v = await this.getView(design, view);
-    return v.query(opt);
   }
 
   since(oid: number = 0) {
     return this.#since.iterate({ oid });
   }
 
-  load(ids: string[]) {
+  load(ids: string[]): SSDocument[] {
     const uids = uniq(ids);
     const names = bindNames("i")(uids);
     return this.#db

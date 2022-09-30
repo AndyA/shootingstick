@@ -2,11 +2,12 @@ import fs from "node:fs";
 import vm from "node:vm";
 import path from "node:path";
 
-import { uniq, last, keyBy } from "lodash";
+import { uniq, last } from "lodash";
 import Database from "better-sqlite3";
 import { Sqlite } from "./sqlite";
 
 import { SSDatabase } from "./database";
+import { DocumentMerger } from "./tools";
 import { bindNames, bindObject, bindVars, sum, toJSON } from "./util";
 import { sortKey } from "../collation";
 
@@ -57,10 +58,11 @@ const defaultViewConfig: SSViewConfig = {
   sorted: true,
   stable: false,
   update: true,
-  update_seq: false
+  update_seq: false,
+  chunk: 100
 };
 
-function resolveViewReference({ id, value }: SSViewRow): string {
+export function resolveViewReference({ id, value }: SSViewRow): string {
   // Handle CouchDB special case where the value is { _id: "docid" }
   if (typeof value === "object") {
     const ve = Object.entries(value);
@@ -73,7 +75,7 @@ function resolveViewReference({ id, value }: SSViewRow): string {
 }
 
 export class SSView {
-  store: SSDatabase;
+  #store: SSDatabase;
   #viewDir: string;
   #dbDir: string;
   #db: Sqlite;
@@ -91,7 +93,7 @@ export class SSView {
   #setState: Database.Statement;
 
   private constructor(store: SSDatabase, viewDir: string, dbDir: string) {
-    this.store = store;
+    this.#store = store;
     this.#viewDir = viewDir;
     this.#dbDir = dbDir;
     this.makeDatabase();
@@ -223,12 +225,48 @@ export class SSView {
   }
 
   async update() {
-    const hwm = this.highWaterMark;
-    for (const rec of this.store.since(hwm)) await this.indexDocument(rec);
+    for (const rec of this.#store.since(this.highWaterMark))
+      await this.indexDocument(rec);
     this.flush();
   }
 
-  query(opt: SSViewOptions = {}): SSViewRow[] {
+  private *streamTail(
+    config: SSViewConfig,
+    iter: IterableIterator<any>
+  ): Generator<SSViewRow, void, void> {
+    const unpack = ({ id, key, value }) => ({
+      id,
+      key: JSON.parse(key),
+      value: JSON.parse(value)
+    });
+
+    // No docs - just shove them out.
+    if (!config.include_docs) {
+      for (const row of iter) yield unpack(row);
+      return;
+    }
+
+    // If we're including docs we load them in batches to avoid
+    // loading the same document loads of times - and because
+    // it's quicker.
+
+    const merger = new DocumentMerger(this.#store);
+    const queue: SSViewRow[] = [];
+
+    function* flushQueue() {
+      const pending = merger.addDocuments(queue.splice(0));
+      for (const row of pending) yield row;
+    }
+
+    for (const row of iter) {
+      queue.push(unpack(row));
+      if (queue.length >= config.chunk) yield* flushQueue();
+    }
+
+    yield* flushQueue();
+  }
+
+  *query(opt: SSViewOptions = {}): Generator<SSViewRow, void, void> {
     const config = { ...defaultViewConfig, ...opt };
 
     const where: string[] = [];
@@ -274,27 +312,7 @@ export class SSView {
       bind.skip = config.skip;
     }
 
-    const rows: SSViewRow[] = this.#db
-      .learn(sql.join(" "))
-      .all(bind)
-      .map(({ id, key, value }) => ({
-        id,
-        key: JSON.parse(key),
-        value: JSON.parse(value)
-      }));
-
-    if (config.include_docs) {
-      const ids = rows.map(resolveViewReference);
-      const docs = keyBy(this.store.load(ids), "_id");
-
-      // Merge in the documents
-      for (const row of rows) {
-        const doc = docs[row.id];
-        if (!doc) throw new Error(`No doc found for ${row.id}`);
-        row.doc = doc;
-      }
-    }
-
-    return rows;
+    const iter = this.#db.learn(sql.join(" ")).iterate(bind);
+    yield* this.streamTail(config, iter);
   }
 }

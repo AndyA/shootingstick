@@ -48,6 +48,7 @@ export interface SSViewConfig {
   startkey_docid?: string;
   update: boolean | "lazy";
   update_seq: boolean;
+  chunk: number;
 }
 
 export type SSViewOptions = Partial<SSViewConfig>;

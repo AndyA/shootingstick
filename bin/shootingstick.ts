@@ -17,21 +17,24 @@ async function update(db: SSDatabase, viewRoot: string) {
   console.log(`View Update`);
   const maps = await fg(path.join(viewRoot, "**", "map.js"));
   for (const { view, design } of maps.sort().map(viewName)) {
-    const v = await db.getView(design, view);
+    const v = await db.view(design, view);
     console.log(`Updating ${design}/${view} (latest: ${v.highWaterMark})`);
     await v.update();
   }
 }
 
-async function query(db: SSDatabase) {
-  const res = await db.view("confidence", "confidence", {
+async function queryStream(db: SSDatabase) {
+  const view = await db.view("confidence", "confidence");
+  const iter = view.query({
     startkey: [1937, 12, 7, 0],
-    endkey: [1937, 12, 7, 7, {}],
-    include_docs: true,
-    limit: 3
+    endkey: [1939, 1, 1, {}]
+    // include_docs: true,
+    // limit: 3
   });
 
-  console.log(JSON.stringify(res, null, 2));
+  for (const row of iter) {
+    console.log(JSON.stringify(row) + ",");
+  }
 }
 
 async function writeDoc(db: SSDatabase) {
@@ -49,8 +52,9 @@ async function writeDoc(db: SSDatabase) {
 
 async function main(store: string, viewRoot: string) {
   const db = await SSDatabase.create(store, { viewRoot });
-  await update(db, viewRoot);
+  // await update(db, viewRoot);
   // await query(db);
+  await queryStream(db);
   // await writeDoc(db);
 }
 
