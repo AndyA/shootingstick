@@ -10,15 +10,12 @@ import {
   SSBulkRowError,
   SSDocument,
   SSFreeDocument,
-  SSViewOptions,
   isSSBulkRowError
 } from "./types";
 import { SSView } from "./view";
 import { initCollation } from "../collation";
 import { bindNames, bindObject, bindVars, nextRev, toJSON } from "./util";
 import { keyBy, uniq } from "lodash";
-
-const dbName = "store.db";
 
 export interface SSConfig {
   viewRoot: string;
@@ -55,7 +52,7 @@ export class SSDatabase {
   private constructor(dir: string, options: SSOptions) {
     this.dir = dir;
     this.config = { ...defaultOptions, ...options };
-    this.#db = new Sqlite(path.join(dir, dbName));
+    this.#db = new Sqlite(path.join(dir, "store.db"));
     this.makeTables();
     this.prepareStatements();
   }

@@ -1,0 +1,6 @@
+{
+  "watch": ["lib", "bin", "config"],
+  "ext": "ts,js,json",
+  "ignore": ["**/*.test.ts", "**/*.spec.ts"],
+  "exec": "ts-node ./bin/app.ts"
+}

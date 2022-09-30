@@ -92,6 +92,9 @@ export class SSView {
   #getState: Database.Statement;
   #setState: Database.Statement;
 
+  // Cached stats
+  #total: number | null = null;
+
   private constructor(store: SSDatabase, viewDir: string, dbDir: string) {
     this.#store = store;
     this.#viewDir = viewDir;
@@ -196,6 +199,7 @@ export class SSView {
       // Highest oid we've seen? They're in order
       // so it's the last one.
       this.#setState.run({ id: "oid", value: last(rows).oid });
+      this.#total = null;
     }));
   }
 
@@ -222,6 +226,12 @@ export class SSView {
   get highWaterMark() {
     const rec = this.#getState.get({ id: "oid" });
     return rec?.value ?? 0;
+  }
+
+  get total() {
+    if (this.#total !== null) return this.#total;
+    const req = this.#db.learn(`SELECT COUNT(*) AS "count" FROM "view"`).get();
+    return (this.#total = req.count || 0);
   }
 
   async update() {
