@@ -17,7 +17,7 @@ async function streamRows(res: Response, iter: Generator, total: number) {
   await writeLine(res, head.slice(0, -2));
   let prev = null;
   for (const row of iter) {
-    if (prev !== null) await writeLine(res, prev + ",");
+    if (prev !== null) await writeLine(res, `${prev},`);
     prev = JSON.stringify(row);
   }
   if (prev !== null) await writeLine(res, prev);
@@ -31,7 +31,7 @@ app.get(
     const { database, ddoc, view } = req.params;
     const store = await ctx.database(database);
     const v = await store.view(ddoc, view);
-    const iter = v.query();
+    const iter = v.query({ limit: 1000 });
     await streamRows(res, iter, v.total);
   }
 );
